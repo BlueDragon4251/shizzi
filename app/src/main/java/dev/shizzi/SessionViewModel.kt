@@ -96,6 +96,21 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch { settingsStore.setAutomationToken(AutomationToken.generate()) }
     }
 
+    fun setLocalDnsEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsStore.setLocalDnsEnabled(enabled) }
+    }
+
+    fun saveLocalDnsRecord(previousName: String?, record: LocalDnsRecord) {
+        viewModelScope.launch {
+            runCatching { settingsStore.saveLocalDnsRecord(previousName, record.normalized()) }
+                .onFailure { SessionLog.error("save local DNS entry: ${it.message}") }
+        }
+    }
+
+    fun removeLocalDnsRecord(name: String) {
+        viewModelScope.launch { settingsStore.removeLocalDnsRecord(name) }
+    }
+
     fun setLogging(enabled: Boolean) {
         SessionLog.setEnabled(enabled)
         diagnostics.setLogging(enabled)

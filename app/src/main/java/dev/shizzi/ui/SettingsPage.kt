@@ -29,6 +29,7 @@ import dev.shizzi.AppPermission
 import dev.shizzi.PermissionStatus
 import dev.shizzi.ShizukuState
 import dev.shizzi.VpnMode
+import dev.shizzi.LocalDnsRecord
 import dev.shizzi.ui.theme.AccentChoice
 import dev.shizzi.ui.theme.DesignLanguage
 import dev.shizzi.ui.theme.ScreenPadding
@@ -55,6 +56,8 @@ data class SettingsState(
     val customAccents: List<Int>,
     val isLogging: Boolean,
     val vpnMode: VpnMode,
+    val localDnsEnabled: Boolean,
+    val localDnsRecords: List<LocalDnsRecord>,
     val isRunningDiagnostics: Boolean,
     val automation: AutomationState,
 )
@@ -66,6 +69,9 @@ data class SettingsActions(
     val onAddCustomAccent: (Int) -> Unit,
     val onSetLogging: (Boolean) -> Unit,
     val onSetVpnMode: (VpnMode) -> Unit,
+    val onSetLocalDnsEnabled: (Boolean) -> Unit,
+    val onSaveLocalDnsRecord: (String?, LocalDnsRecord) -> Unit,
+    val onRemoveLocalDnsRecord: (String) -> Unit,
     val onOpenLog: () -> Unit,
     val onRunProbes: () -> Unit,
     val onGrantPermission: (AppPermission) -> Unit,
@@ -155,6 +161,16 @@ private fun settingsSections(
             state = state.automation,
             actions = actions.automation,
             toasts = toasts,
+        )
+    },
+
+    SettingsSectionSpec("Local DNS") {
+        LocalDnsSection(
+            enabled = state.localDnsEnabled,
+            records = state.localDnsRecords,
+            onSetEnabled = actions.onSetLocalDnsEnabled,
+            onSave = actions.onSaveLocalDnsRecord,
+            onRemove = actions.onRemoveLocalDnsRecord,
         )
     },
 
