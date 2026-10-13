@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -49,19 +50,26 @@ fun LocalDnsSection(
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         records.forEach { record ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(record.name)
-                    Text(record.ip)
+            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(record.name)
+                        Text(record.ip)
+                    }
+                    TextButton(onClick = { edit(record) }) { Text("Edit") }
                 }
-                TextButton(onClick = { onSave(record.name, record.copy(enabled = !record.enabled)) }) {
-                    Text(if (record.enabled) "Disable" else "Enable")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = { onSave(record.name, record.copy(enabled = !record.enabled)) }) {
+                        Text(if (record.enabled) "Disable" else "Enable")
+                    }
+                    TextButton(onClick = { onRemove(record.name) }) { Text("Delete") }
                 }
-                TextButton(onClick = { edit(record) }) { Text("Edit") }
-                TextButton(onClick = { onRemove(record.name) }) { Text("Delete") }
             }
         }
         TextButton(onClick = { edit(null) }) { Text("+ Add DNS record") }

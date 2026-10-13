@@ -46,3 +46,15 @@ func TestLocalDNSConfigValidationAndDisable(t *testing.T) {
 	if err := dns.setConfig(`{"enabled":false,"records":[{"name":"pdf","ip":"10.201.244.112","enabled":true}]}`);err!=nil { t.Fatal(err) }
 	if _, handled := dns.answer(queryDNS("pdf",1)); handled { t.Fatal("disabled DNS answered") }
 }
+
+func TestLocalDNSWithEDNSAdditional(t *testing.T) {
+	var dns localDNSStore
+	if err := dns.setConfig(`{"enabled":true,"records":[{"name":"pdf","ip":"10.201.244.112","enabled":true}]}`); err != nil { t.Fatal(err) }
+	query := queryDNS("pdf", 1)
+	binary.BigEndian.PutUint16(query[10:12], 1) // ARCOUNT = 1
+	query = append(query, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0)
+	response, handled := dns.answer(query)
+	if !handled { t.Fatal("EDNS query was not handled") }
+	if binary.BigEndian.Uint16(response[10:12]) != 0 { t.Fatal("stale ARCOUNT in rewritten reply") }
+	if binary.BigEndian.Uint16(response[6:8]) != 1 { t.Fatal("missing local A answer") }
+}
