@@ -2,6 +2,8 @@ package datapath
 
 import (
 	"io"
+	"encoding/binary"
+	"fmt"
 	"net"
 	"strconv"
 	"time"
@@ -36,13 +38,13 @@ const (
 // Without these the stack silently drops every packet: nothing is listening on
 // the addresses tethered clients dial, because those addresses belong to hosts
 // out on the internet rather than to this stack.
-func installForwarders(netStack *stack.Stack, dialer *net.Dialer) {
+func installForwarders(netStack *stack.Stack, dialer *net.Dialer, dns *localDNSStore) {
 	tcpForwarder := tcp.NewForwarder(netStack, defaultRcvWnd, maxInFlightTCP,
-		func(request *tcp.ForwarderRequest) { forwardTCP(request, dialer) })
+		func(request *tcp.ForwarderRequest) { forwardTCP(request, dialer, dns) })
 	netStack.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder.HandlePacket)
 
 	udpForwarder := udp.NewForwarder(netStack,
-		func(request *udp.ForwarderRequest) bool { return forwardUDP(request, dialer) })
+		func(request *udp.ForwarderRequest) bool { return forwardUDP(request, dialer, dns) })
 	netStack.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder.HandlePacket)
 }
 
@@ -51,7 +53,7 @@ func installForwarders(netStack *stack.Stack, dialer *net.Dialer) {
 // The upstream socket is dialed before the client endpoint is created, so a
 // refused or unreachable destination sends the client a RST rather than
 // completing a handshake that then dies.
-func forwardTCP(request *tcp.ForwarderRequest, dialer *net.Dialer) {
+func forwardTCP(request *tcp.ForwarderRequest, dialer *net.Dialer, dns *localDNSStore) {
 	id := request.ID()
 
 	upstream, err := dialer.Dial("tcp", destinationOf(id))
@@ -70,7 +72,11 @@ func forwardTCP(request *tcp.ForwarderRequest, dialer *net.Dialer) {
 	request.Complete(false)
 
 	client := gonet.NewTCPConn(&queue, endpoint)
-	go relay(client, upstream)
+	if id.LocalPort == 53 {
+		go relayDNSTCP(client, upstream, dns)
+	} else {
+		go relay(client, upstream)
+	}
 }
 
 // forwardUDP proxies one client datagram flow to its destination.
@@ -78,7 +84,7 @@ func forwardTCP(request *tcp.ForwarderRequest, dialer *net.Dialer) {
 // Returning false leaves the request unhandled, which makes the stack send the
 // client an ICMP port unreachable — the right answer when the destination
 // could not be reached, and better than dropping the datagram silently.
-func forwardUDP(request *udp.ForwarderRequest, dialer *net.Dialer) bool {
+func forwardUDP(request *udp.ForwarderRequest, dialer *net.Dialer, dns *localDNSStore) bool {
 	id := request.ID()
 
 	upstream, err := dialer.Dial("udp", destinationOf(id))
@@ -94,7 +100,11 @@ func forwardUDP(request *udp.ForwarderRequest, dialer *net.Dialer) bool {
 	}
 
 	client := gonet.NewUDPConn(&queue, endpoint)
-	go relayDatagrams(client, upstream)
+	if id.LocalPort == 53 {
+		go relayDNSUDP(client, upstream, dns)
+	} else {
+		go relayDatagrams(client, upstream)
+	}
 	return true
 }
 
@@ -181,4 +191,74 @@ func destinationOf(id stack.TransportEndpointID) string {
 
 func addressString(address tcpip.Address) string {
 	return net.IP(address.AsSlice()).String()
+}
+
+
+// relayDNSUDP answers configured local names and transparently forwards others.
+// Both directions retain the same socket/binding behavior as ordinary UDP.
+func relayDNSUDP(client, upstream net.Conn, dns *localDNSStore) {
+	defer client.Close()
+	defer upstream.Close()
+	done := make(chan struct{}, 2)
+	go func() {
+		buffer := make([]byte, maxDatagramSize)
+		for {
+			if err := client.SetReadDeadline(time.Now().Add(udpFlowTimeout)); err != nil { break }
+			n, err := client.Read(buffer)
+			if err != nil { break }
+			if response, handled := dns.answer(buffer[:n]); handled {
+				if _, err := client.Write(response); err != nil { break }
+			} else if _, err := upstream.Write(buffer[:n]); err != nil { break }
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		copyWithIdleTimeout(client, upstream)
+		done <- struct{}{}
+	}()
+	<-done
+}
+
+// relayDNSTCP handles standard length-prefixed DNS messages. Other queries
+// are proxied to the original destination, including responses and errors.
+func relayDNSTCP(client, upstream net.Conn, dns *localDNSStore) {
+	defer client.Close()
+	defer upstream.Close()
+	for {
+		if err := client.SetReadDeadline(time.Now().Add(udpFlowTimeout)); err != nil { return }
+		query, err := readDNSFrame(client)
+		if err != nil { return }
+		response, handled := dns.answer(query)
+		if !handled {
+			if err := upstream.SetDeadline(time.Now().Add(udpFlowTimeout)); err != nil { return }
+			if err := writeDNSFrame(upstream, query); err != nil { return }
+			response, err = readDNSFrame(upstream)
+			if err != nil { return }
+		}
+		if err := client.SetWriteDeadline(time.Now().Add(udpFlowTimeout)); err != nil { return }
+		if err := writeDNSFrame(client, response); err != nil { return }
+	}
+}
+
+func readDNSFrame(conn net.Conn) ([]byte, error) {
+	var length [2]byte
+	if _, err := io.ReadFull(conn, length[:]); err != nil { return nil, err }
+	n := int(binary.BigEndian.Uint16(length[:]))
+	if n == 0 { return nil, fmt.Errorf("empty DNS/TCP frame") }
+	packet := make([]byte, n)
+	_, err := io.ReadFull(conn, packet)
+	return packet, err
+}
+func writeDNSFrame(conn net.Conn, packet []byte) error {
+	if len(packet) > 65535 { return fmt.Errorf("DNS/TCP response too large") }
+	var length [2]byte
+	binary.BigEndian.PutUint16(length[:], uint16(len(packet)))
+	frame := append(length[:], packet...)
+	for len(frame)>0 {
+		n, err := conn.Write(frame)
+		if err != nil { return err }
+		if n == 0 { return io.ErrShortWrite }
+		frame=frame[n:]
+	}
+	return nil
 }
