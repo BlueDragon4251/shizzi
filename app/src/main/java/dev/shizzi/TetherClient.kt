@@ -203,10 +203,17 @@ class TetherClient {
         bound.rebootDevice()
     }
 
-    suspend fun start(logging: Boolean, vpnMode: VpnMode): String = withContext(Dispatchers.IO) {
+    suspend fun start(logging: Boolean, vpnMode: VpnMode, localDnsConfiguration: String): String = withContext(Dispatchers.IO) {
         val bound = service()
         verifyContract(bound)
-        bound.start(logging, vpnMode.name)
+        bound.start(logging, vpnMode.name, localDnsConfiguration)
+    }
+
+    suspend fun updateLocalDns(localDnsConfiguration: String) = withContext(Dispatchers.IO) {
+        val bound = service()
+        verifyContract(bound)
+        val result = bound.updateLocalDns(localDnsConfiguration)
+        check(result == "ok") { result }
     }
 
     fun setLogging(enabled: Boolean) {

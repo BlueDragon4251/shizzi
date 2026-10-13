@@ -90,6 +90,9 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            // Side-by-side with the official release, avoiding signature conflicts
+            // and preserving existing Shizzi settings during device tests.
+            applicationIdSuffix = ".localdns"
         }
 
         release {

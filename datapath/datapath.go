@@ -30,6 +30,7 @@ const nicID tcpip.NICID = 1
 type Session struct {
 	stack   *stack.Stack
 	binding *networkBinding
+	dns     *localDNSStore
 }
 
 // Start builds a netstack over tunFD, already open, and attaches it to the TUN.
@@ -77,12 +78,13 @@ func Start(tunFD int, mtu int) (*Session, error) {
 	})
 
 	binding := &networkBinding{}
+	dns := &localDNSStore{}
 	installForwarders(netStack, &net.Dialer{
 		Timeout: dialTimeout,
 		Control: binding.control,
-	})
+	}, dns)
 
-	return &Session{stack: netStack, binding: binding}, nil
+	return &Session{stack: netStack, binding: binding, dns: dns}, nil
 }
 
 // SetNetwork pins every subsequent dial to a handle from
@@ -100,6 +102,13 @@ func (s *Session) SetNetwork(handle int64) {
 		return
 	}
 	s.binding.set(uint64(handle))
+}
+
+// SetLocalDNS replaces local DNS records atomically, without restarting tethering.
+// The config is JSON: {"enabled":true,"records":[{"name":"pdf","ip":"10.0.0.2","enabled":true}]}.
+func (s *Session) SetLocalDNS(config string) error {
+	if s.dns == nil { return fmt.Errorf("DNS store not initialized") }
+	return s.dns.setConfig(config)
 }
 
 // Stop tears the netstack down. It does not close the TUN fd.

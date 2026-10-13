@@ -26,7 +26,7 @@ class TetherSession(private val context: Context) {
 
     val isActive: Boolean get() = state == SessionState.ACTIVE
 
-    fun start(mode: VpnMode = VpnMode.AUTO): String {
+    fun start(mode: VpnMode = VpnMode.AUTO, localDnsConfiguration: String = "{}"): String {
         if (isActive) return status()
 
         vpnMode = mode
@@ -39,7 +39,7 @@ class TetherSession(private val context: Context) {
                 "contract ${TetherService.CONTRACT_VERSION}",
         )
 
-        return runCatching { bringUp() }
+        return runCatching { bringUp(localDnsConfiguration) }
             .getOrElse { failure ->
                 Log.e(TAG, "start failed", failure)
                 SessionLog.error(
@@ -52,7 +52,7 @@ class TetherSession(private val context: Context) {
             }
     }
 
-    private fun bringUp(): String {
+    private fun bringUp(localDnsConfiguration: String): String {
         val group = SessionResources(testNetworkApi, context.connectivityManager())
         resources = group
 
@@ -61,6 +61,7 @@ class TetherSession(private val context: Context) {
         SessionLog.info("tun up: $name (mtu $TUN_MTU, $TUN_ADDRESS, $TUN_ADDRESS_V6)")
 
         group.startDatapath(TUN_MTU)
+        group.updateLocalDns(localDnsConfiguration)
         SessionLog.info("datapath attached to $name")
         followVpn(group)
 
@@ -77,6 +78,11 @@ class TetherSession(private val context: Context) {
         teardown.installShutdownHook()
         startWatchdog(name)
         return status()
+    }
+
+    fun updateLocalDns(configuration: String) {
+        // Changes while stopped are stored in DataStore and used at next start.
+        resources?.updateLocalDns(configuration)
     }
 
     private fun followVpn(group: SessionResources) {

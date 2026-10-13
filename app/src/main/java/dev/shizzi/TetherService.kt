@@ -26,11 +26,20 @@ class TetherService : ITetherService.Stub {
 
     override fun getContractVersion(): Int = CONTRACT_VERSION
 
-    override fun start(logging: Boolean, vpnMode: String?): String {
+    override fun start(logging: Boolean, vpnMode: String?, localDnsConfiguration: String): String {
         SessionLog.setEnabled(logging)
-        return runCatching { session.start(parseVpnMode(vpnMode)) }
+        return runCatching { session.start(parseVpnMode(vpnMode), localDnsConfiguration) }
             .getOrElse { failure -> sessionError("start", failure) }
     }
+
+    override fun updateLocalDns(localDnsConfiguration: String): String =
+        runCatching {
+            session.updateLocalDns(localDnsConfiguration)
+            "ok"
+        }.getOrElse { failure ->
+            SessionLog.error("local DNS update failed: ${failure.message}")
+            "error: ${failure.message}"
+        }
 
     override fun stop(): String {
         runCatching { runner.teardown() }

@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 class SessionService : Service() {
@@ -37,6 +40,7 @@ class SessionService : Service() {
     private var reportTo: AutomationCommand? = null
 
     private var startJob: Job? = null
+    private var dnsJob: Job? = null
 
     private var generation = 0
 
@@ -85,7 +89,7 @@ class SessionService : Service() {
 
             val outcome = sessionLock.withLock {
                 if (attempt != generation) return@launch
-                runCatching { controller.start(settings.isLogging, settings.vpnMode) }
+                runCatching { controller.start(settings.isLogging, settings.vpnMode, settings.localDnsConfigJson()) }
             }
             if (attempt != generation) return@launch
 
@@ -100,6 +104,7 @@ class SessionService : Service() {
             publishState()
             announceOutcome()
             followStatus()
+            followLocalDnsChanges()
         }
     }
 
@@ -111,6 +116,23 @@ class SessionService : Service() {
         },
     )
 
+    private fun followLocalDnsChanges() {
+        dnsJob?.cancel()
+        dnsJob = scope.launch {
+            settingsStore().settings
+                .map { it.localDnsConfigJson() }
+                .distinctUntilChanged()
+                .collect { configuration ->
+                    if (internalState.value.status != UiStatus.CONNECTED) return@collect
+                    sessionLock.withLock {
+                        if (internalState.value.status != UiStatus.CONNECTED) return@withLock
+                        runCatching { controller.updateLocalDns(configuration) }
+                            .onFailure { SessionLog.error("live DNS update: ${it.message}") }
+                    }
+                }
+        }
+    }
+
     private fun settingsStore(): SettingsStore =
         (application as App).settingsStore
 
@@ -121,6 +143,8 @@ class SessionService : Service() {
         startJob = null
 
         statusPoller.stop()
+        dnsJob?.cancel()
+        dnsJob = null
 
         internalState.update {
             it.asStopped()
