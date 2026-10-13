@@ -26,6 +26,8 @@ data class Settings(
     val isLogging: Boolean = true,
 
     val vpnMode: VpnMode = VpnMode.AUTO,
+    val localDnsEnabled: Boolean = true,
+    val localDnsRecords: List<LocalDnsRecord> = emptyList(),
 
     val hasCompletedOnboarding: Boolean = false,
 
@@ -79,6 +81,29 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { it[VPN_MODE] = mode.name }
     }
 
+    suspend fun setLocalDnsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[LOCAL_DNS_ENABLED] = enabled }
+    }
+
+    suspend fun saveLocalDnsRecord(previousName: String?, record: LocalDnsRecord) {
+        require(record.isValid()) { "Invalid local DNS hostname or IPv4 address" }
+        context.dataStore.edit { preferences ->
+            val records = parseLocalDnsRecords(preferences[LOCAL_DNS_RECORDS]).toMutableList()
+            if (previousName != null) records.removeAll { it.name == previousName }
+            require(records.size < 256) { "Maximum 256 local DNS records" }
+            require(records.none { it.name == record.name }) { "Hostname already exists" }
+            records.add(record)
+            preferences[LOCAL_DNS_RECORDS] = serializeLocalDnsRecords(records)
+        }
+    }
+
+    suspend fun removeLocalDnsRecord(name: String) {
+        context.dataStore.edit { preferences ->
+            val records = parseLocalDnsRecords(preferences[LOCAL_DNS_RECORDS])
+            preferences[LOCAL_DNS_RECORDS] = serializeLocalDnsRecords(records.filterNot { it.name == name })
+        }
+    }
+
     suspend fun setOnboardingComplete(hasCompleted: Boolean) {
         context.dataStore.edit { it[ONBOARDED] = hasCompleted }
     }
@@ -108,6 +133,8 @@ internal val ACCENT = stringPreferencesKey("accent")
 internal val CUSTOM_ACCENTS = stringPreferencesKey("custom_accents")
 internal val LOGGING = booleanPreferencesKey("logging")
 internal val VPN_MODE = stringPreferencesKey("vpn_mode")
+internal val LOCAL_DNS_ENABLED = booleanPreferencesKey("local_dns_enabled")
+internal val LOCAL_DNS_RECORDS = stringPreferencesKey("local_dns_records")
 internal val ONBOARDED = booleanPreferencesKey("onboarded")
 internal val AUTOMATION = booleanPreferencesKey("automation")
 internal val AUTOMATION_TOKEN = stringPreferencesKey("automation_token")
@@ -121,6 +148,8 @@ internal fun toSettings(preferences: Preferences) = Settings(
     customAccents = parseAccents(preferences[CUSTOM_ACCENTS]),
     isLogging = preferences[LOGGING] ?: true,
     vpnMode = parseVpnMode(preferences[VPN_MODE]),
+    localDnsEnabled = preferences[LOCAL_DNS_ENABLED] ?: true,
+    localDnsRecords = parseLocalDnsRecords(preferences[LOCAL_DNS_RECORDS]),
     hasCompletedOnboarding = preferences[ONBOARDED] ?: false,
     isAutomationEnabled = preferences[AUTOMATION] ?: false,
     automationToken = preferences[AUTOMATION_TOKEN].orEmpty(),

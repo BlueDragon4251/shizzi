@@ -75,6 +75,11 @@ class SessionResources(
             }
     }
 
+    fun updateLocalDns(configuration: String) {
+        val session = datapathSession ?: error("local DNS requires an active datapath")
+        session.setLocalDNS(configuration)
+    }
+
     fun bindDatapathTo(handle: Long) {
         val session = datapathSession
             ?: error("bindDatapathTo($handle): no datapath session; startDatapath must succeed first")
