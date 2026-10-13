@@ -18,9 +18,6 @@ func queryDNS(name string, kind uint16) []byte {
 }
 func splitName(s string) []string {
 	var parts []string
-	for _, p := range []byte(s) {
-		_ = p
-	}
 	start := 0
 	for i := 0; i <= len(s); i++ {
 		if i == len(s) || s[i] == '.' {

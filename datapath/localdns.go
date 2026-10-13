@@ -77,7 +77,7 @@ func (s *localDNSStore) answer(query []byte) ([]byte, bool) {
 		labels = append(labels, string(query[index:index+length]))
 		index += length
 	}
-	if index+4 != len(query) { return nil, false } // no trailing EDNS/options
+	if index+4 > len(query) { return nil, false } // tolerate trailing EDNS/OPT records
 	name := strings.ToLower(strings.Join(labels, "."))
 	addr, exists := table.records[name]
 	if !exists { return nil, false }
@@ -86,8 +86,8 @@ func (s *localDNSStore) answer(query []byte) ([]byte, bool) {
 	if qclass != 1 { return nil, false }
 	answerA := qtype == 1
 	// Response preserves the question exactly and never leaks local names upstream.
-	response := make([]byte, len(query), len(query)+16)
-	copy(response, query)
+	response := make([]byte, index+4, index+20)
+	copy(response, query[:index+4])
 	binary.BigEndian.PutUint16(response[2:4], 0x8480|(flags&0x0100)) // QR AA RA + RD
 	if answerA { binary.BigEndian.PutUint16(response[6:8], 1) }
 	binary.BigEndian.PutUint16(response[8:10], 0)

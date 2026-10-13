@@ -17,7 +17,7 @@ data class LocalDnsRecord(val name: String, val ip: String, val enabled: Boolean
         val octets = candidate.ip.split('.')
         return octets.size == 4 && octets.all {
             it.isNotEmpty() && it.length <= 3 && it.all(Char::isDigit) &&
-                it.toIntOrNull() in 0..255
+                (it.toIntOrNull()?.let { number -> number in 0..255 } == true)
         }
     }
 }
